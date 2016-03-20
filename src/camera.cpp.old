@@ -1,0 +1,97 @@
+#pragma once
+
+#include <vector>
+
+//#include <gl/glew.h>
+#include <GL/gl3w.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/rotate_vector.hpp>
+#include <time.h>
+#include <cstdlib>
+#include <sys/timeb.h>
+
+enum Camera_Movement {
+	FORWARD,
+	BACKWARD,
+	LEFT,
+	RIGHT,
+	ZOOM_IN,
+	ZOOM_OUT
+};
+
+const GLfloat SPEED = 0.01f;
+const GLfloat SENSITIVITY = 5.0f;
+const GLfloat ZOOM = 45.0f;
+
+class Camera {
+public:
+	glm::vec3 Position, Front, Up, Right;
+	GLfloat xoffset, yoffset, MovementSpeed, MouseSensitivity, Zoom;
+
+	Camera(glm::vec3 position = glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f), GLfloat xoffset = 0.0f, GLfloat yoffset = 0.0f) : Front(glm::vec3(0.0f, 0.0f, -1.0f)), MovementSpeed(SPEED), MouseSensitivity(SENSITIVITY), Zoom(ZOOM) {
+		this->Position = position;
+		this->Up = up;
+		this->xoffset = xoffset;
+		this->yoffset = yoffset;
+		this->updateCameraVectors();
+	}
+
+	Camera(GLfloat posX, GLfloat posY, GLfloat posZ, GLfloat upX, GLfloat upY, GLfloat upZ, GLfloat xoffset, GLfloat yoffset) : Front(glm::vec3(0.0f, 0.0f, -1.0f)), MovementSpeed(SPEED), MouseSensitivity(SENSITIVITY), Zoom(ZOOM) {
+		this->Position = glm::vec3(posX, posY, posZ);
+		this->Up = glm::vec3(upX, upY, upZ);
+		this->xoffset = xoffset;
+		this->yoffset = yoffset;
+		this->updateCameraVectors();
+	}
+
+	glm::mat4 GetViewMatrix() {
+		return glm::lookAt(this->Position, this->Position + this->Front, this->Up);
+	}
+
+	void ProcessKeyboard(Camera_Movement direction, int deltaTime) {
+		GLfloat velocity = this->MovementSpeed * (GLfloat) deltaTime;
+		if (direction == FORWARD) {
+			this->Position += this->Front * velocity;
+		}
+		if (direction == BACKWARD) {
+			this->Position -= this->Front * velocity;
+		}
+		if (direction == LEFT) {
+			this->Position -= this->Right * velocity;
+		}
+		if (direction == RIGHT) {
+			this->Position += this->Right * velocity;
+		}
+		if (direction == ZOOM_IN) {
+			this->Zoom -= 0.5f * velocity;
+		}
+		if (direction == ZOOM_OUT) {
+			this->Zoom += 0.5f * velocity;
+		}
+		if (this->Zoom < 1.0f) {
+			this->Zoom = 1.0f;
+		}
+		if (this->Zoom > 45.0f) {
+			this->Zoom = 45.0f;
+		}
+	}
+
+	void ProcessMouseMovement(GLfloat xoffset, GLfloat yoffset) {
+		this->xoffset = xoffset;
+		this->yoffset = yoffset;
+		this->updateCameraVectors();
+	}
+
+private:
+	void updateCameraVectors() {
+		this->Right = glm::normalize(glm::cross(this->Front, this->Up));
+		this->xoffset *= this->MouseSensitivity;
+		this->yoffset *= this->MouseSensitivity;
+		this->Front = glm::normalize(glm::rotate(this->Front, glm::radians(this->xoffset), this->Up));
+		this->Front = glm::normalize(glm::rotate(this->Front, -glm::radians(this->yoffset), this->Right));
+
+		this->Right = glm::normalize(glm::cross(this->Front, this->Up));
+		this->Up = glm::normalize(glm::cross(this->Right, this->Front));
+	}
+};
