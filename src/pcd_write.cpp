@@ -39,6 +39,8 @@
 #include <RMFE.hpp>
 #include <Histogram.hpp>
 #include <Histogram2D.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/highgui/highgui.hpp>
 
 int windowWidth = 500, windowHeight = 500; //Width/Height of OpenGL window
 GLuint VAO, lampVAO, VBO, VAO2, VBO2, EBO, EBO2, texture1, texture2, VAO_pc,
@@ -451,7 +453,23 @@ void extractWalls(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 	std::vector<std::vector<int>> counts = hist2d->record();
 	int minCount = hist2d->getMinCount();
 	int maxCount = hist2d->getMaxCount();
+	std::vector<float> xBinBoundaries = hist2d->getXBinBoundaries();
+	std::vector<float> zBinBoundaries = hist2d->getZBinBoundaries();
 
+	cv::Mat img;
+	uint8_t color;
+	img.create(xBinBoundaries.size() - 1, zBinBoundaries.size() - 1, CV_8UC1);
+	for (int x = 0; x < xBinBoundaries.size() - 1; x++) {
+		for (int z = 0; z < zBinBoundaries.size() - 1; z++) {
+			color = (uint8_t) ((counts[x][z] - minCount) / (maxCount - minCount) * 255);
+			img.at<uchar>(x, z) = color;
+			console->info() << color;
+		}
+	}
+
+	console->info() << "About to show the image";
+	cv::imshow("XZ Histogram", img);
+	cv::waitKey(0);
 }
 
 void processPC(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud) {
@@ -468,12 +486,18 @@ void processPC(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud) {
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	extractFloor(cloud_aligned, cloud_without_floor, cloud_floor);
 
-	console->info() << "Rendering";
+	console->info() << "Finding walls";
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_without_walls(
+			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+	std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr> cloud_walls;
+	extractWalls(cloud_without_floor, cloud_without_walls, cloud_walls);
+
+	/*console->info() << "Rendering";
 	GLRenderer glRenderer = GLRenderer(800, 600, glm::vec3(1.0f, 1.0f, 1.0f));
 	glRenderer.addAxes();
 	glRenderer.addPointCloud(cloud_without_floor);
 	glRenderer.addPointCloud(cloud_floor, glm::vec3(0.0f, 1.0f, 0.0f));
-	glRenderer.render();
+	glRenderer.render();*/
 
 	//console->info() << "Writing points to " << file;
 	//pcl::io::savePCDFileASCII(outputFilename, *cloud_defined_normals);

@@ -22,8 +22,8 @@ add_definitions(-DUNICODE -D_UNICODE)
 find_package(OpenGL REQUIRED)
 include_directories(${OPENGL_INCLUDE_DIRS})
 
-#set(CMAKE_PREFIX_PATH /Users/neeravbm/OpenCV/opencv)
-#find_package(OpenCV REQUIRED)
+set(CMAKE_PREFIX_PATH ${CMAKE_MODULE_PATH} /Users/neeravbm/OpenCV/build/share/OpenCV)
+find_package(OpenCV REQUIRED core highgui)
 
 #find_package(GLUT REQUIRED)
 #include_directories(${GLUT_INCLUDE_DIRS})
@@ -31,6 +31,7 @@ include_directories(${OPENGL_INCLUDE_DIRS})
 if(UNIX)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -stdlib=libc++")
 endif()
+
 
 add_executable(pcd_write_test pcd_write.cpp)
 target_link_libraries(pcd_write_test ${PCL_LIBRARIES} ${OPENGL_LIBRARIES} ${OpenCV_LIBS} "-framework Foundation" GL glfw3 m stdc++ freeimage Utils Shader GLRenderer gl3w Camera RMFE Histogram Histogram2D)

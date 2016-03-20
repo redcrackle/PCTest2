@@ -30,6 +30,8 @@ public:
 	std::vector<std::vector<int> > record();
 	int getMinCount();
 	int getMaxCount();
+	std::vector<float> getXBinBoundaries();
+	std::vector<float> getZBinBoundaries();
 };
 
 #endif /* HISTOGRAM2D_HPP_ */

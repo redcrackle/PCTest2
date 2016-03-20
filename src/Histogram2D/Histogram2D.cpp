@@ -108,3 +108,10 @@ int Histogram2D::getMaxCount() {
 	return this->maxCount;
 }
 
+std::vector<float> Histogram2D::getXBinBoundaries() {
+	return this->xBinBoundaries;
+}
+
+std::vector<float> Histogram2D::getZBinBoundaries() {
+	return this->zBinBoundaries;
+}
