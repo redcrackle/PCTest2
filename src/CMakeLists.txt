@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
+# Make sure to set DYLD_FALLBACK_LIBRARY_PATH to /Users/neeravbm/OpenCV/build/lib otherwise OpenCV won't link correctly during execution.
+
 project(PCTest2)
 find_package(PCL 1.3 REQUIRED COMPONENTS common io sample_consensus segmentation)
 include_directories(${PCL_INCLUDE_DIRS} include Shader gl3w/include GLRenderer Camera Utils RMFE Histogram Histogram2D)
@@ -31,7 +33,6 @@ find_package(OpenCV REQUIRED core highgui)
 if(UNIX)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -stdlib=libc++")
 endif()
-
 
 add_executable(pcd_write_test pcd_write.cpp)
 target_link_libraries(pcd_write_test ${PCL_LIBRARIES} ${OPENGL_LIBRARIES} ${OpenCV_LIBS} "-framework Foundation" GL glfw3 m stdc++ freeimage Utils Shader GLRenderer gl3w Camera RMFE Histogram Histogram2D)

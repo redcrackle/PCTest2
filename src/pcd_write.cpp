@@ -329,17 +329,13 @@ void extractFloor(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 	console->debug() << "Floor lies between " << peak.low << " and "
 			<< peak.high;
 
-	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_floor_with_outliers(
-			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-	pcl::PassThrough<pcl::PointXYZRGBNormal> pass;
-	pass.setInputCloud(cloud);
-	pass.setFilterFieldName("y");
-	pass.setFilterLimits(peak.low, peak.high);
-	pass.filter(*cloud_floor_with_outliers);
+	std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr> clouds_vector =
+			Utils::applyPassthroughFilter(cloud, 'y', peak.low, peak.high,
+					"both");
 
-	// Get the point cloud without the floor.
-	pass.setFilterLimitsNegative(true);
-	pass.filter(*cloud_without_floor);
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_floor_with_outliers(
+			clouds_vector[0]);
+	*cloud_without_floor += *clouds_vector[1];
 
 	pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
 	pcl::PointIndices::Ptr floorInliers(new pcl::PointIndices);
@@ -369,6 +365,11 @@ void extractFloor(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 	extractFloorInliers.filter(*cloud_floor_outliers);
 
 	*cloud_without_floor += *cloud_floor_outliers;
+}
+
+void applyPassthroughFilter(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
+		Eigen::Vector4f direction, float minThreshold, float maxThreshold) {
+
 }
 
 void alignPC(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
@@ -418,38 +419,37 @@ void extractWalls(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 		std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr> clouds_walls) {
 
 	// First get all the points that are above the mid-height level.
-	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_above_yThreshold(
-			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	pcl::PointXYZRGBNormal min_pt, max_pt;
 	pcl::getMinMax3D(*cloud, min_pt, max_pt);
-	float yThreshold = (min_pt.y + max_pt.y) / 2;
-	pcl::PassThrough<pcl::PointXYZRGBNormal> pass;
-	pass.setInputCloud(cloud);
-	pass.setFilterFieldName("y");
-	pass.setFilterLimits(yThreshold, max_pt.y);
-	pass.filter(*cloud_above_yThreshold);
+	float yThreshold = 0.25 * min_pt.y + 0.75 * max_pt.y;
 
-	// Fiter out all the points whose absolute normals in y direction are more than 0.1.
+	std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr> clouds_vector =
+			Utils::applyPassthroughFilter(cloud, 'y', yThreshold, max_pt.y,
+					"inliers");
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_above_yThreshold(
+			clouds_vector[0]);
+
+	// Filter out all the points whose absolute normals in y direction are more than 0.1.
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_filtered(
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 
 	// Filter all the points whose abs(normal_y) > 0.9.
 	pcl::ExtractIndices<pcl::PointXYZRGBNormal> extract;
 	pcl::PointIndices::Ptr outliers(new pcl::PointIndices());
-	for (int i = 0; i < cloud->points.size(); i++) {
-		if (std::abs(cloud->points[i].normal_y) > 0.1) {
+	for (int i = 0; i < cloud_above_yThreshold->points.size(); i++) {
+		if (std::abs(cloud_above_yThreshold->points[i].normal_y) > 0.1) {
 			outliers->indices.push_back(i);
 		}
 	}
 
 	// Filter out the outliers.
-	extract.setInputCloud(cloud);
+	extract.setInputCloud(cloud_above_yThreshold);
 	extract.setIndices(outliers);
 	extract.setNegative(true);
 	extract.filter(*cloud_filtered);
 
 	// cloud_filtered should only have high points who normals are close to XZ plane. Only these points can possibly lie on a wall.
-	Histogram2D *hist2d = new Histogram2D(cloud_filtered, 1000);
+	Histogram2D *hist2d = new Histogram2D(cloud_filtered, 100000);
 	std::vector<std::vector<int>> counts = hist2d->record();
 	int minCount = hist2d->getMinCount();
 	int maxCount = hist2d->getMaxCount();
@@ -461,15 +461,164 @@ void extractWalls(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 	img.create(xBinBoundaries.size() - 1, zBinBoundaries.size() - 1, CV_8UC1);
 	for (int x = 0; x < xBinBoundaries.size() - 1; x++) {
 		for (int z = 0; z < zBinBoundaries.size() - 1; z++) {
-			color = (uint8_t) ((counts[x][z] - minCount) / (maxCount - minCount) * 255);
+			color = (uint8_t) (((float) (counts[x][z] - minCount))
+					/ ((float) (maxCount - minCount)) * 255.0f);
 			img.at<uchar>(x, z) = color;
-			console->info() << color;
 		}
 	}
 
+	cv::Mat detected_edges;
+	cv::Mat detected_lines = cv::Mat::zeros(xBinBoundaries.size() - 1,
+			zBinBoundaries.size() - 1, CV_8UC3);
+	std::vector<cv::Vec4i> lines;
+	cv::blur(img, detected_edges, cv::Size(5, 5));
+	cv::Canny(detected_edges, detected_edges, 50, 200, 5);
+	cv::HoughLinesP(detected_edges, lines, 1, CV_PI / 180, 50, 20, 10);
+	console->info() << "Number of lines detected: " << lines.size();
+
+	for (int i = 0; i < lines.size(); i++) {
+		cv::Vec4i l = lines[i];
+		cv::line(detected_lines, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]),
+				CV_RGB(0, 0, 255), 1, CV_AA);
+	}
+
 	console->info() << "About to show the image";
-	cv::imshow("XZ Histogram", img);
+	/*cv::imshow("XZ Histogram", detected_edges);
+	 cv::waitKey(0);*/
+	cv::imshow("Detected Lines", detected_lines);
 	cv::waitKey(0);
+
+	// Find the point which is farthest from the center.
+	int farthest_line_index = 0;
+	int farthest_point_index = 0;
+	float center_point_x = ((float) xBinBoundaries[0]
+			+ (float) xBinBoundaries[xBinBoundaries.size() - 1]) / 2;
+	float center_point_z = ((float) zBinBoundaries[0]
+			+ (float) zBinBoundaries[zBinBoundaries.size() - 1]) / 2;
+	float max_squared_distance = 0.0f;
+	float squared_distance = 0.0f;
+	for (int line_index = 0; line_index < lines.size(); line_index++) {
+		for (int point_index = 0; point_index < 1; point_index += 2) {
+			squared_distance = std::pow(
+					lines[line_index][point_index] - center_point_x, 2)
+					+ std::pow(
+							lines[line_index][point_index + 1] - center_point_z,
+							2);
+			if (squared_distance > max_squared_distance) {
+				farthest_line_index = line_index;
+				farthest_point_index = point_index;
+			}
+		}
+	}
+
+	int farthest_point_x = lines[farthest_line_index][farthest_point_index];
+	int farthest_point_z = lines[farthest_line_index][farthest_point_index + 1];
+
+	int complement_point_index = (farthest_point_index == 0) ? 2 : 0;
+	int complement_point_x = lines[farthest_line_index][complement_point_index];
+	int complement_point_z = lines[farthest_line_index][complement_point_index
+			+ 1];
+
+	int number_of_seed_points = 0, width = 1, index_x_min, index_x_max,
+			index_z_min, index_z_max;
+	float farthest_point_x_min, farthest_point_x_max, farthest_point_x_mid,
+			farthest_point_z_min, farthest_point_z_max, farthest_point_z_mid;
+	std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr>
+			clouds_xThresholded_vector, clouds_xzThresholded_vector;
+	Eigen::RowVector3f line_normal;
+	while (number_of_seed_points <= 0) {
+		index_x_min =
+				(farthest_point_x - width + 1 > 0) ?
+						farthest_point_x - width + 1 : 0;
+		index_x_max =
+				(farthest_point_x + width < xBinBoundaries.size()) ?
+						farthest_point_x + width : xBinBoundaries.size() - 1;
+		farthest_point_x_min = xBinBoundaries[index_x_min];
+		farthest_point_x_max = xBinBoundaries[index_x_max];
+		farthest_point_x_mid = (farthest_point_x_min + farthest_point_x_max)
+				/ 2;
+
+		index_z_min =
+				(farthest_point_z - width + 1 > 0) ?
+						farthest_point_z - width + 1 : 0;
+		index_z_max =
+				(farthest_point_z + width < zBinBoundaries.size()) ?
+						farthest_point_z + width : zBinBoundaries.size() - 1;
+		farthest_point_z_min = zBinBoundaries[index_z_min];
+		farthest_point_z_max = zBinBoundaries[index_z_max];
+		farthest_point_z_mid = (farthest_point_z_min + farthest_point_z_max)
+				/ 2;
+
+		if (width == 1) {
+			float complement_point_x_min = xBinBoundaries[complement_point_x];
+			float complement_point_x_max =
+					xBinBoundaries[complement_point_x + 1];
+			float complement_point_x_mid = (complement_point_x_min
+					+ complement_point_x_max) / 2;
+
+			float complement_point_z_min = zBinBoundaries[complement_point_z];
+			float complement_point_z_max =
+					zBinBoundaries[complement_point_z + 1];
+			float complement_point_z_mid = (complement_point_z_min
+					+ complement_point_z_max) / 2;
+
+			line_normal << -(farthest_point_z_mid - complement_point_z_mid), 0, (farthest_point_x_mid
+					- complement_point_x_mid);
+		}
+
+		// Apply passthrough filter to get points in cuboid.
+		clouds_xThresholded_vector = Utils::applyPassthroughFilter(
+				cloud_filtered, 'x', farthest_point_x_min, farthest_point_x_max,
+				"inliers");
+		number_of_seed_points = clouds_xThresholded_vector[0]->points.size();
+		if (number_of_seed_points == 0) {
+			width += 1;
+			continue;
+		}
+
+		clouds_xzThresholded_vector = Utils::applyPassthroughFilter(
+				clouds_xThresholded_vector[0], 'z', farthest_point_z_min,
+				farthest_point_z_max, "inliers");
+		number_of_seed_points = clouds_xzThresholded_vector[0]->points.size();
+		if (number_of_seed_points == 0) {
+			width += 1;
+			continue;
+		}
+
+		// Find the point whose normal is the closest to line_normal vector.
+		Eigen::RowVector3f point_normal;
+		float normal_product;
+		float max_normal_product = 0;
+		int seed_index;
+		for (int i = 0; i < clouds_xzThresholded_vector[0]->points.size();
+				i++) {
+			point_normal << clouds_xzThresholded_vector[0]->points[i].normal_x, clouds_xzThresholded_vector[0]->points[i].normal_y, clouds_xzThresholded_vector[0]->points[i].normal_z;
+			// It should be possible to improve this code by using cloud->getMatrixXfMap() to get all the normals in matrix form and then multiplying with line normal.
+			normal_product = std::abs(
+					(float) ((Eigen::VectorXf) (point_normal
+							* line_normal.transpose()))(0));
+			if (normal_product > max_normal_product) {
+				seed_index = i;
+				max_normal_product = normal_product;
+			}
+		}
+
+		// We have the seed point now. Start region growing.
+		console->debug() << "Seed point for region growth: ("
+				<< clouds_xzThresholded_vector[0]->points[seed_index].x << ", "
+				<< clouds_xzThresholded_vector[0]->points[seed_index].y << ", "
+				<< clouds_xzThresholded_vector[0]->points[seed_index].z
+				<< ") with normal ("
+				<< clouds_xzThresholded_vector[0]->points[seed_index].normal_x
+				<< ", "
+				<< clouds_xzThresholded_vector[0]->points[seed_index].normal_y
+				<< ", "
+				<< clouds_xzThresholded_vector[0]->points[seed_index].normal_z
+				<< ")";
+	}
+
+	Eigen::Vector4f direction(0.0f, 0.1f, 0.0f, 0.0f);
+	applyPassthroughFilter(cloud_filtered, direction, 0.0f, 1.0f);
 }
 
 void processPC(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud) {
@@ -492,12 +641,12 @@ void processPC(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud) {
 	std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr> cloud_walls;
 	extractWalls(cloud_without_floor, cloud_without_walls, cloud_walls);
 
-	/*console->info() << "Rendering";
+	console->info() << "Rendering";
 	GLRenderer glRenderer = GLRenderer(800, 600, glm::vec3(1.0f, 1.0f, 1.0f));
 	glRenderer.addAxes();
 	glRenderer.addPointCloud(cloud_without_floor);
 	glRenderer.addPointCloud(cloud_floor, glm::vec3(0.0f, 1.0f, 0.0f));
-	glRenderer.render();*/
+	glRenderer.render();
 
 	//console->info() << "Writing points to " << file;
 	//pcl::io::savePCDFileASCII(outputFilename, *cloud_defined_normals);
