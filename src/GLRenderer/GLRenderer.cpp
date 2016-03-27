@@ -356,13 +356,13 @@ void GLRenderer::addPointCloud(
 	for (int i = 0; i < 3 * normal_pc_size; i += 3) {
 		vertices.push_back(
 				normalCloud->points[i / 3].x
-						+ 0.01 * normalCloud->points[i / 3].normal_x);
+						+ 0.05 * normalCloud->points[i / 3].normal_x);
 		vertices.push_back(
 				normalCloud->points[i / 3].y
-						+ 0.01 * normalCloud->points[i / 3].normal_y);
+						+ 0.05 * normalCloud->points[i / 3].normal_y);
 		vertices.push_back(
 				normalCloud->points[i / 3].z
-						+ 0.01 * normalCloud->points[i / 3].normal_z);
+						+ 0.05 * normalCloud->points[i / 3].normal_z);
 	}
 
 	// Add vertex color

@@ -31,8 +31,14 @@ public:
 
 	Histogram(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 			int numberOfBins = 500, std::string direction = "y");
+	Histogram(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
+			int numberOfBins = 500,
+			Eigen::Vector4f direction = Eigen::Vector4f(0.0f, 1.0f, 0.0f,
+					0.0f));
 	void record();
 	HistPeak getLowestPeak();
+
+	void getMinMaxValues(float* minValue, float* maxValue);
 };
 
 #endif /* HISTOGRAM_HPP_ */

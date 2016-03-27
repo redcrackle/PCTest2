@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 2.8 FATAL_ERROR)
 
+# CMake using the command 'cmake -G "Eclipse CDT4 - Unix Makefiles" ../' from the build directory.
 # Make sure to set DYLD_FALLBACK_LIBRARY_PATH to /Users/neeravbm/OpenCV/build/lib otherwise OpenCV won't link correctly during execution.
 
 project(PCTest2)
