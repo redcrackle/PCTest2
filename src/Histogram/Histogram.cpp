@@ -27,29 +27,12 @@ Histogram::Histogram(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 Histogram::Histogram(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud, int numberOfBins, Eigen::Vector4f direction) {
 	this->numberOfBins = numberOfBins;
 
-	// http://docs.pointclouds.org/1.7.1/classpcl_1_1_point_cloud.html#a6ff67b42a2596e5edd53713c51cd8ce4
-	/*Eigen::MatrixXf pointsTranspose = cloud->getMatrixXfMap(3, 4, 0);
-	Eigen::MatrixXf points = pointsTranspose.transpose();
-	Eigen::MatrixXf ones = Eigen::MatrixXf::Ones(points.rows(), 1);
-	Eigen::MatrixXf homogeneousPoints(points.rows(), 4);
-	homogeneousPoints << points, ones;
-
-	std::cout << "3rd point: " <<  (float) homogeneousPoints(2, 0) << " " << (float) homogeneousPoints(2, 1) << " " << (float) homogeneousPoints(2, 2) << " " << (float) homogeneousPoints(2, 3) << std::endl;
-	Eigen::VectorXf vectorSum = homogeneousPoints * direction;
-	std::cout << "3rd sum: " << (float) vectorSum(2) << std::endl;
-
-	for (int i = 0; i < vectorSum.rows(); i++) {
-		//std::cout << "Vector sum: " << (float) vectorSum(i) << std::endl;
-		this->values.push_back((float) vectorSum(i));
-	}*/
-
 	float dotProduct;
 	for (int i = 0; i < cloud->points.size(); i++) {
 		dotProduct = cloud->points[i].x * direction(0) + cloud->points[i].y * direction(1) + cloud->points[i].z * direction(2) + direction(3);
 		this->values.push_back(dotProduct);
 	}
 
-	std::cout << "3rd point: " << this->values[2] << std::endl;
 	for (int i = 0; i < numberOfBins; i++) {
 		this->counts.push_back(0);
 	}

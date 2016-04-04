@@ -180,6 +180,10 @@ void GLRenderer::render() {
 				renderStruct.shader.setParamMatrix4fv("view", view);
 				renderStruct.shader.setParamMatrix4fv("projection", projection);
 
+				if (renderStruct.tex_id) {
+					glBindTexture(GL_TEXTURE_2D, renderStruct.tex_id);
+				}
+
 				glBindVertexArray(renderStruct.VAO);
 				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderStruct.EBO);
 
@@ -210,6 +214,15 @@ void GLRenderer::render() {
 						glDrawElements(GL_LINES, renderStruct.num,
 						GL_UNSIGNED_INT, 0);
 					}
+					break;
+				case GLRenderer::quads:
+					if (renderStruct.instanced) {
+						glDrawElementsInstanced(GL_QUADS, renderStruct.num, GL_UNSIGNED_INT, 0, 1);
+					}
+					else {
+						glDrawElements(GL_TRIANGLE_STRIP, renderStruct.num, GL_UNSIGNED_INT, 0);
+					}
+					break;
 				}
 
 				renderStruct.shader.unUse();
@@ -477,6 +490,92 @@ void GLRenderer::addPointCloud(
 	renderStruct.VBO = dataVBO;
 	renderStruct.EBO = normalEBO;
 	renderStruct.type = GLRenderer::Normal;
+	this->renderStructs.push_back(renderStruct);
+}
+
+void GLRenderer::addQuad(float* corners, GLubyte* texels, int* texelSize) {
+	GLuint tex_id = 0;
+	console->info() << "Texel size: " << texelSize[0] << " " << texelSize[1];
+	console->info() << "Generating texture";
+	glGenTextures(1, &tex_id);
+	glBindTexture(GL_TEXTURE_2D, tex_id);
+	console->info() << "Tex id: " << tex_id;
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texelSize[0], texelSize[1], 0, GL_RGB, GL_UNSIGNED_BYTE, texels);
+	console->info() << "Generating minmap";
+	glGenerateMipmap(GL_TEXTURE_2D);
+
+	//free(texels);
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+
+	// Render the point cloud.
+	Shader quadShader = Shader("../shaders/vertexshader_quad.glsl",
+			"../shaders/fragmentshader_quad.glsl");
+	quadShader.use();
+
+	GLfloat vertices[] = {
+			corners[0], corners[1], corners[2], 0.0f, 0.0f,
+			corners[3], corners[4], corners[5], 0.0f, 1.0f,
+			corners[9], corners[10], corners[11], 1.0f, 0.0f,
+			corners[6], corners[7], corners[8], 1.0f, 1.0f
+	};
+
+	GLuint dataVBO;
+	glGenBuffers(1, &dataVBO);
+	glBindBuffer(GL_ARRAY_BUFFER, dataVBO);
+	glBufferData(GL_ARRAY_BUFFER, //sizeof(vertices), &vertices[0],
+			sizeof(GLfloat) * 20, &vertices[0],
+			GL_STATIC_DRAW);
+
+	GLuint VAO;
+	glGenVertexArrays(1, &VAO);
+	glBindVertexArray(VAO);
+
+	std::vector<GLuint> indices;
+	for (GLuint i = 0; i < 4; i++) {
+		indices.push_back(i);
+	}
+	GLuint dataEBO;
+	glGenBuffers(1, &dataEBO);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dataEBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * indices.size(),
+			&indices[0], GL_STATIC_DRAW);
+
+	// Also set instance data
+	// Bind position
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, dataVBO);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*) 0);
+	//glVertexAttribDivisor(0, 1); // Tell OpenGL this is an instanced vertex attribute.
+
+	// Bind color
+	glEnableVertexAttribArray(1);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(GLfloat), (GLvoid*) (3 * sizeof(GLfloat)));
+	//glVertexAttribDivisor(1, 1); // Tell OpenGL this is an instanced vertex attribute.
+
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+
+	quadShader.unUse();
+
+	RenderStruct renderStruct = { };
+	renderStruct.VAO = VAO;
+	renderStruct.num = 4;
+	renderStruct.primitive = GLRenderer::quads;
+	renderStruct.shader = quadShader;
+	renderStruct.instanced = false;
+	renderStruct.VBO = dataVBO;
+	renderStruct.EBO = dataEBO;
+	renderStruct.type = GLRenderer::Data;
+	renderStruct.tex_id = tex_id;
 	this->renderStructs.push_back(renderStruct);
 }
 

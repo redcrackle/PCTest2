@@ -201,8 +201,6 @@ Eigen::RowVector3f Utils::getNormalFromLineEndpoints(
 			<< -(zBinBoundaries[point1_z_index] - zBinBoundaries[point2_z_index]), 0, (xBinBoundaries[point1_x_index]
 			- xBinBoundaries[point2_x_index]);
 	line_normal.normalize();
-	console->info() << "Line normal is: " << line_normal(0) << " "
-			<< line_normal(1) << " " << line_normal(2);
 
 	return line_normal;
 }
@@ -289,19 +287,6 @@ pcl::PointXYZRGBNormal Utils::getSeedIndex(
 		}
 	}
 
-	// We have the seed point now. Start region growing.
-	console->info() << "Seed point for region growth: ("
-			<< clouds_xzThresholded_vector[0]->points[seed_index].x << ", "
-			<< clouds_xzThresholded_vector[0]->points[seed_index].y << ", "
-			<< clouds_xzThresholded_vector[0]->points[seed_index].z
-			<< ") with normal ("
-			<< clouds_xzThresholded_vector[0]->points[seed_index].normal_x
-			<< ", "
-			<< clouds_xzThresholded_vector[0]->points[seed_index].normal_y
-			<< ", "
-			<< clouds_xzThresholded_vector[0]->points[seed_index].normal_z
-			<< ")";
-
 	return clouds_xzThresholded_vector[0]->points[seed_index];
 }
 
@@ -310,80 +295,48 @@ void Utils::growRegion(
 		pcl::PointXYZRGBNormal seed_point, Eigen::RowVector3f line_normal,
 		pcl::PointIndices::Ptr wall_inliers_indices) {
 
-	pcl::PointIndices::Ptr wall_neighbors_indices(new pcl::PointIndices());
+	std::unordered_map<int, bool> wall_neighbors_indices;
 
 	pcl::KdTreeFLANN<pcl::PointXYZRGBNormal> kdtree;
 	kdtree.setInputCloud(cloud_filtered);
-	std::vector<int> pointsIdxRadius;
-	std::vector<float> pointsSquaredDistRadius;
+	std::vector<int> pointsIdx;
+	std::vector<float> squaredDist;
 	float radius = 0.05f;
 
-	int count = kdtree.radiusSearch(seed_point, radius, pointsIdxRadius,
-			pointsSquaredDistRadius);
+	int count = kdtree.radiusSearch(seed_point, radius, pointsIdx, squaredDist);
 	// Just add the first point, which will be the same point as the seed.
-	wall_neighbors_indices->indices.push_back(pointsIdxRadius[0]);
-	wall_inliers_indices->indices.push_back(pointsIdxRadius[0]);
+	wall_neighbors_indices[pointsIdx[0]] = true;
+	wall_inliers_indices->indices.push_back(pointsIdx[0]);
 
 	int current_index = 0;
 	float normal_product;
 
 	do {
-		//console->info() << "Entering the do loop";
-		pointsIdxRadius.clear();
-		pointsSquaredDistRadius.clear();
+		pointsIdx.clear();
+		squaredDist.clear();
 		count =
 				kdtree.radiusSearch(
 						cloud_filtered->points[wall_inliers_indices->indices[current_index]],
-						radius, pointsIdxRadius, pointsSquaredDistRadius);
-		//kdtree.nearestKSearch(clouds_xzThresholded_vector[0]->points[seed_index], K, pointsIdxRadius, pointsSquaredDistRadius);
-		//console->info() << "Number of neighbors found: " << count;
+						radius, pointsIdx, squaredDist);
 
-		for (int i = 0; i < pointsIdxRadius.size(); i++) {
-			/*console->info() << "Index: " << i << "; Point Index: " << pointsIdxRadius[i];
-			 console->info() << "Existing point indices:";
-			 for (int j = 0; j < wall_neighbors_indices->indices.size(); j++) {
-			 console->info() << wall_neighbors_indices->indices[j];
-			 }*/
-			if (pointsSquaredDistRadius[i] > 0
-					&& !std::binary_search(
-							wall_neighbors_indices->indices.begin(),
-							wall_neighbors_indices->indices.end(),
-							pointsIdxRadius[i])) {
-				/*&& std::find(wall_neighbors_indices->indices.begin(),
-				 wall_neighbors_indices->indices.end(),
-				 pointsIdxRadius[i])
-				 == wall_neighbors_indices->indices.end()) {*/
+		for (int i = 0; i < pointsIdx.size(); i++) {
+			if (squaredDist[i] > 0 && !wall_neighbors_indices[pointsIdx[i]]) {
+				wall_neighbors_indices[pointsIdx[i]] = true;
 
-				/*console->info() << "Point " << i
-				 << " has not been encountered before";*/
-				// This is a new point we haven't encountered before.
-				wall_neighbors_indices->indices.push_back(pointsIdxRadius[i]);
-				std::sort(wall_neighbors_indices->indices.begin(),
-						wall_neighbors_indices->indices.end());
+				normal_product = line_normal(0)
+						* cloud_filtered->points[pointsIdx[i]].normal_x
+						+ line_normal(1)
+								* cloud_filtered->points[pointsIdx[i]].normal_y
+						+ line_normal(2)
+								* cloud_filtered->points[pointsIdx[i]].normal_z;
 
-				normal_product =
-						line_normal(0)
-								* cloud_filtered->points[pointsIdxRadius[i]].normal_x
-								+ line_normal(1)
-										* cloud_filtered->points[pointsIdxRadius[i]].normal_y
-								+ line_normal(2)
-										* cloud_filtered->points[pointsIdxRadius[i]].normal_z;
-				/*console->info() << "Normal product: "
-				 << std::abs(normal_product);*/
 				if (std::abs(normal_product) > 0.90) {
 					// Add to the region.
-					//console->info() << "Adding to the inliers";
-					wall_inliers_indices->indices.push_back(pointsIdxRadius[i]);
+					wall_inliers_indices->indices.push_back(pointsIdx[i]);
 				}
-			} else {
-				/*console->info() << "Point " << i
-				 << " has been encountered before or is the same as seed point.";*/
 			}
 		}
 
 		current_index++;
-		/*console->info() << "Current index: " << current_index;
-		 console->info() << "Number of inliers: "
-		 << wall_inliers_indices->indices.size();*/
 	} while (current_index < wall_inliers_indices->indices.size());
 }

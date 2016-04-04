@@ -19,6 +19,7 @@
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/crop_box.h>
 #include <pcl/common/transforms.h>
 #include <pcl/common/pca.h>
 #include <pcl/features/normal_3d.h>
@@ -41,7 +42,9 @@
 #include <Histogram2D.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
-#include <algorithm> //(needed for std::find)//int windowWidth = 500, windowHeight = 500; //Width/Height of OpenGL windowGLuint VAO, lampVAO, VBO, VAO2, VBO2, EBO, EBO2, texture1, texture2, VAO_pc,VBO_pc;glm::mat4 trans, model, view, projection;glm::vec3 cubePositions[10], rotationAxes[10], cameraPos = glm::vec3(0.0f, 0.0f,3.0f), cameraFront = glm::vec3(0.0f, 0.0f, -1.0f), cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);GLfloat mix = 0.5, deltaTime = 0.0f, lastX = 400.0f, lastY = 300.0f, yaw = 0.0f,pitch = 0.0f, fov = 45.0f;bool keys[1024];int lastFrame;
+#include <algorithm> //(needed for std::find)#include <math.h>
+
+//int windowWidth = 500, windowHeight = 500; //Width/Height of OpenGL window
 Camera camera(glm::vec3(0.0f, 1.0f, 3.0f));
 Shader lightShader, lampShader, pcShader;
 int N = 10;
@@ -292,7 +295,8 @@ int readPCFromFile(std::string filename,
 
 void extractFloor(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 		pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_without_floor,
-		pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_floor) {
+		float* corners, unsigned char* &texels, int* floor_size) {
+		//pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_floor) {
 
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_filtered(
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
@@ -338,10 +342,11 @@ void extractFloor(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 	seg.setDistanceThreshold((peak.high - peak.low) / 2);
 	seg.setInputCloud(cloud_floor_with_outliers);
 	seg.segment(*floorInliers, *coefficients);
-	console->debug() << "Floor plane coefficients: " << coefficients->values[0]
+	console->info() << "Floor plane coefficients: " << coefficients->values[0]
 			<< " " << coefficients->values[1] << " " << coefficients->values[2]
 			<< " " << coefficients->values[3];
 
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_floor(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	pcl::ExtractIndices<pcl::PointXYZRGBNormal> extractFloorInliers;
 	extractFloorInliers.setInputCloud(cloud_floor_with_outliers);
 	extractFloorInliers.setIndices(floorInliers);
@@ -354,6 +359,53 @@ void extractFloor(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 	extractFloorInliers.filter(*cloud_floor_outliers);
 
 	*cloud_without_floor += *cloud_floor_outliers;
+
+	Histogram2D* hist2d = new Histogram2D(cloud_floor, 0.01f, 'y', true);
+	hist2d->record();
+	texels = hist2d->getTexels();
+	std::vector<float> xBinBoundaries = hist2d->getXBinBoundaries();
+	std::vector<float> zBinBoundaries = hist2d->getZBinBoundaries();
+	int numX = xBinBoundaries.size() - 1, numZ = zBinBoundaries.size() - 1;
+	float minX = xBinBoundaries[0], maxX = xBinBoundaries[numX - 1], minZ = zBinBoundaries[0], maxZ = zBinBoundaries[numZ - 1];
+
+	float yIntersect = -coefficients->values[3] / coefficients->values[1];
+	corners[0] = corners[3] = minX;
+	corners[2] = corners[11] = minZ;
+	corners[6] = corners[9] = maxX;
+	corners[5] = corners[8] = maxZ;
+	corners[1] = corners[4] = corners[7] = corners[10] = yIntersect;
+
+	floor_size[0] = numX;
+	floor_size[1] = numZ;
+
+	/*console->info() << "Texels filled";
+
+	GLuint tex_id = 0;
+	console->info() << "Generating texture";
+	glGenTextures(1, &tex_id);
+	glBindTexture(GL_TEXTURE_2D, tex_id);
+	console->info() << "Tex id: " << tex_id;
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, numX, numZ, 0, GL_RGB, GL_UNSIGNED_BYTE, texels);
+	console->info() << "Generating minmap";
+	glGenerateMipmap(GL_TEXTURE_2D);
+
+	free(texels);
+	glBindTexture(GL_TEXTURE_2D, 0);*/
+
+
+	/*corners[] = {
+			minX, yIntersect, minZ,
+			minX, yIntersect, maxZ,
+			maxX, yIntersect, maxZ,
+			maxX, yIntersect, minZ
+	};*/
+
+	//return tex_id;
 }
 
 void applyPassthroughFilter(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
@@ -435,7 +487,6 @@ bool extractWall(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_filtered,
 
 	if (!lines.size()) {
 		cloud_filtered->swap(*cloud_without_walls);
-		console->info() << "Number of points in cloud_without_wall: " << cloud_without_walls->points.size();
 		return false;
 	}
 
@@ -466,131 +517,87 @@ bool extractWall(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_filtered,
 	Utils::growRegion(cloud_filtered, seed_point, line_normal,
 			wall_inliers_indices);
 
-	console->info() << "Inliers: " << wall_inliers_indices->indices.size();
-
 	// Now that we have wall inlier indices, fit a plane.
 	Eigen::Vector4f plane_parameters;
 	float curvature;
 	pcl::computePointNormal(*cloud_filtered, wall_inliers_indices->indices,
 			plane_parameters, curvature);
-	console->info() << "Plane parameters: " << plane_parameters;
 	// Forcibly make the plane perpendicular to XZ plane. Assuming that all walls are perpendicular to XZ plane.
 	plane_parameters(1) = 0;
+
+	double theta = atan2(
+			((double) -plane_parameters(3)) / ((double) plane_parameters(2)),
+			((double) -plane_parameters(3)) / ((double) plane_parameters(0)));
+	console->info() << "Theta of the wall before rotation: " << theta * 180 / M_PI;
+
+	console->info() << "Rotating the point cloud so that the wall is parallel to the X-axis";
+	Eigen::Matrix4f R = Eigen::Matrix4f::Identity();
+	R(0, 0) = cos(theta);
+	R(0, 2) = -sin(theta);
+	R(2, 0) = sin(theta);
+	R(2, 2) = cos(theta);
+	pcl::transformPointCloud(*cloud_filtered, *cloud_filtered, R);
 
 	pcl::ExtractIndices<pcl::PointXYZRGBNormal> extract_wall_inliers;
 	extract_wall_inliers.setInputCloud(cloud_filtered);
 	extract_wall_inliers.setIndices(wall_inliers_indices);
 	extract_wall_inliers.setNegative(false);
 	extract_wall_inliers.filter(*cloud_wall);
+	console->info() << "cloud_wall: " << cloud_wall->points.size();
 
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_wall_outliers(
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	extract_wall_inliers.setNegative(true);
 	extract_wall_inliers.filter(*cloud_wall_outliers);
+	//extract_wall_inliers.filter(*cloud_without_walls);
+	console->info() << "cloud_wall_outliers: " << cloud_wall_outliers->points.size();
 
-	Histogram* hist = new Histogram(cloud_wall, 1, plane_parameters);
-	float minError, maxError;
-	hist->getMinMaxValues(&minError, &maxError);
-	console->info() << "Min Error: " << minError << "; Max Error: " << maxError;
-
-	float xMin = 10000.0f, zMin = 10000.0f, xMax = -10000.0f, zMax = -10000.0f,
-			xPos, zPos;
-	for (int i = 0; i < cloud_wall->points.size(); i++) {
-		xPos = (std::pow((float) plane_parameters(2), 2.0f)
-				* cloud_wall->points[i].x
-				- plane_parameters(0) * plane_parameters(2)
-						* cloud_wall->points[i].z
-				- plane_parameters(0) * plane_parameters(3))
-				/ (std::pow((float) plane_parameters(0), 2)
-						+ std::pow((float) plane_parameters(2), 2));
-		zPos = (-plane_parameters(0) * xPos - plane_parameters(3))
-				/ plane_parameters(2);
-		if (xPos < xMin) {
-			xMin = xPos;
-		}
-		if (xPos > xMax) {
-			xMax = xPos;
-		}
-
-		if (zPos < zMin) {
-			zMin = zPos;
-		}
-		if (zPos > zMax) {
-			zMax = zPos;
-		}
-	}
-
-	console->info() << "X range: " << xMin << " " << xMax;
-	console->info() << "Z range: " << zMin << " " << zMax;
-
-	float normal_distance;
-	pcl::PointIndices::Ptr wall_inliers_indices_among_outliers(
-			new pcl::PointIndices());
-	for (int i = 0; i < cloud_wall_outliers->points.size(); i++) {
-		xPos = (std::pow((float) plane_parameters(2), 2.0f)
-				* cloud_wall_outliers->points[i].x
-				- plane_parameters(0) * plane_parameters(2)
-						* cloud_wall_outliers->points[i].z
-				- plane_parameters(0) * plane_parameters(3))
-				/ (std::pow((float) plane_parameters(0), 2)
-						+ std::pow((float) plane_parameters(2), 2));
-		zPos = (-plane_parameters(0) * xPos - plane_parameters(3))
-				/ plane_parameters(2);
-
-		normal_distance = plane_parameters(0) * cloud_wall_outliers->points[i].x
-				+ plane_parameters(2) * cloud_wall_outliers->points[i].z + plane_parameters(3);
-		if (xPos >= xMin && xPos <= xMax && zPos >= zMin && zPos <= zMax
-				&& normal_distance >= minError && normal_distance <= maxError) {
-			wall_inliers_indices_among_outliers->indices.push_back(i);
-		}
-	}
-	/*console->info() << "Additional wall inliers: "
-			<< wall_inliers_indices_among_outliers->indices.size();*/
+	// Wall is parallel to the X-axis. Find the min and max co-ordinates in X and Z directions.
+	pcl::getMinMax3D(*cloud_wall, min_pt, max_pt);
 
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_wall_inliers_among_outliers(
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+	// Apply cropbox filter.
+	// Initialize filter with extract_removed_indices set to true.
+	pcl::CropBox<pcl::PointXYZRGBNormal> crop(true);
+	Eigen::Vector4f min_pt_vec, max_pt_vec;
+	// Set y to range from -inf to +inf since we want the full wall in vertical direction.
+	min_pt_vec << min_pt.x, -1000000, min_pt.z, 1;
+	max_pt_vec << max_pt.x, 1000000, max_pt.z, 1;
+	crop.setInputCloud(cloud_wall_outliers);
+	crop.setMin(min_pt_vec);
+	crop.setMax(max_pt_vec);
+	crop.filter(*cloud_wall_inliers_among_outliers);
+
+	console->info() << "cloud_wall_inliers_among_outliers: " << cloud_wall_inliers_among_outliers->points.size();
+	*cloud_wall += *cloud_wall_inliers_among_outliers;
+	console->info() << "cloud_wall: " << cloud_wall->points.size();
+	//console->info() << "cloud_without_walls: " << cloud_without_walls->points.size();
+
+	pcl::PointIndices::Ptr cloud_without_wall_indices(new pcl::PointIndices());
+	crop.getRemovedIndices(*cloud_without_wall_indices);
+	console->info() << "cloud_without_wall_indices: " << cloud_without_wall_indices->indices.size();
+	console->info() << "cloud_wall_outliers: " << cloud_wall_outliers->points.size();
+
 	pcl::ExtractIndices<pcl::PointXYZRGBNormal> extract_wall_inliers_among_outliers;
 	extract_wall_inliers.setInputCloud(cloud_wall_outliers);
-	extract_wall_inliers.setIndices(wall_inliers_indices_among_outliers);
+	extract_wall_inliers.setIndices(cloud_without_wall_indices);
 	extract_wall_inliers.setNegative(false);
-	extract_wall_inliers.filter(*cloud_wall_inliers_among_outliers);
-
-	*cloud_wall += *cloud_wall_inliers_among_outliers;
-
-	/*pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_wall_true_outliers(
-	 new pcl::PointCloud<pcl::PointXYZRGBNormal>);*/
-	extract_wall_inliers.setNegative(true);
 	extract_wall_inliers.filter(*cloud_without_walls);
+	console->info() << "cloud_without_walls: " << cloud_without_walls->points.size();
 
-	/*pcl::ExtractIndices<pcl::PointXYZRGBNormal> extract_wall_inliers;
-	 extract_wall_inliers.setInputCloud(cloud_filtered);
-	 extract_wall_inliers.setIndices(wall_inliers_indices);
-	 extract_wall_inliers.setNegative(false);
-	 console->info() << "About to filter";
-	 extract_wall_inliers.filter(*cloud_wall);
-	 console->info() << "Filtered: " << cloud_wall->points.size();
+	R.transposeInPlace();
+	pcl::transformPointCloud(*cloud_wall, *cloud_wall, R);
+	pcl::transformPointCloud(*cloud_without_walls, *cloud_without_walls, R);
 
-	 extract_wall_inliers.setNegative(true);
-	 console->info() << "About to filter";
-	 extract_wall_inliers.filter(*cloud_without_wall);
-	 console->info() << "Filtered: " << cloud_without_wall->points.size();*/
-
-	console->info() << "Final wall inliers: " << cloud_wall->points.size();
-	console->info() << "Final wall outliers: " << cloud_without_walls->points.size();
-
-	/*GLRenderer glRenderer = GLRenderer(800, 600, glm::vec3(1.0f, 1.0f, 1.0f));
-	glRenderer.addAxes();
-	glRenderer.addPointCloud(cloud_without_wall);
-	glRenderer.addPointCloud(cloud_wall, glm::vec3(0.0f, 0.0f, 1.0f));
-	glRenderer.render();*/
-
-	//renderPC(cloud_filtered);
 	return true;
 }
 
 void extractWalls(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 		pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_without_walls,
-		std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr, Eigen::aligned_allocator<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr>> &clouds_walls) {
+		std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr,
+				Eigen::aligned_allocator<
+						pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr>> &clouds_walls) {
 
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_filtered(
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
@@ -616,24 +623,19 @@ void extractWalls(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 	float yThreshold = 0.25 * min_pt.y + 0.75 * max_pt.y;
 
 	// May need to pass cloud instead of cloud_filtered later once we incorporate RANSAC Plane finding for getting the wall.
-	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_wall; //(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-	//pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_without_wall; //(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_wall;
 
 	bool success;
 	do {
 		cloud_wall.reset(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-		//*cloud_without_walls.reset();
 		cloud_without_walls->clear();
-		//cloud_without_walls.reset(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-		success = extractWall(cloud_filtered, yThreshold, cloud_without_walls, cloud_wall);
-		console->info() << "Number of points in cloud_without_wall: " << cloud_without_walls->points.size();
+		success = extractWall(cloud_filtered, yThreshold, cloud_without_walls,
+				cloud_wall);
 		if (success) {
 			cloud_filtered->swap(*cloud_without_walls);
 			clouds_walls.push_back(cloud_wall);
 		}
 	} while (success);
-
-	console->info() << "Number of points in cloud_without_wall: " << cloud_without_walls->points.size();
 }
 
 void processPC(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud) {
@@ -643,26 +645,46 @@ void processPC(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud) {
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 	alignPC(cloud, cloud_aligned);
 
+	//GLRenderer glRenderer = GLRenderer(800, 600, glm::vec3(1.0f, 1.0f, 1.0f));
+
 	console->info() << "Finding the floor";
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_without_floor(
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_floor(
-			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-	extractFloor(cloud_aligned, cloud_without_floor, cloud_floor);
+	/*pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_floor(
+			new pcl::PointCloud<pcl::PointXYZRGBNormal>);*/
+	float floorCorners[12];
+	unsigned char* texels;
+	int floorSize[2];
+	extractFloor(cloud_aligned, cloud_without_floor, floorCorners, texels, floorSize); //cloud_floor);
 
 	console->info() << "Finding walls";
 	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_without_walls(
 			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-	std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr, Eigen::aligned_allocator<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr>> cloud_walls;
+	std::vector<pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr,
+			Eigen::aligned_allocator<
+					pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr>> cloud_walls;
 	extractWalls(cloud_without_floor, cloud_without_walls, cloud_walls);
 	console->info() << "Number of walls found: " << cloud_walls.size();
-	console->info() << "Number of points in cloud_without_wall: " << cloud_without_walls->points.size();
+
+	console->info() << "Removing outliers from non-floor and walls";
+	pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_without_walls_and_outliers(
+			new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+	pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBNormal> sor;
+	console->debug() << "Original points: "
+			<< cloud_without_walls->points.size();
+	sor.setInputCloud(cloud_without_walls);
+	sor.setMeanK(50);
+	sor.setStddevMulThresh(1);
+	sor.filter(*cloud_without_walls_and_outliers);
+	console->debug() << "New points: "
+			<< cloud_without_walls_and_outliers->points.size();
 
 	console->info() << "Rendering";
 	GLRenderer glRenderer = GLRenderer(800, 600, glm::vec3(1.0f, 1.0f, 1.0f));
 	glRenderer.addAxes();
-	glRenderer.addPointCloud(cloud_without_walls);
-	glRenderer.addPointCloud(cloud_floor, glm::vec3(0.0f, 1.0f, 0.0f));
+	glRenderer.addPointCloud(cloud_without_walls_and_outliers);
+	//glRenderer.addPointCloud(cloud_floor, glm::vec3(0.0f, 1.0f, 0.0f));
+	glRenderer.addQuad(floorCorners, (GLubyte*) texels, floorSize);
 	for (int i = 0; i < cloud_walls.size(); i++) {
 		glRenderer.addPointCloud(cloud_walls[i], glm::vecRand3(0.0f, 1.0f));
 	}

@@ -26,10 +26,11 @@ public:
 	void addPointCloud(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud,
 			glm::vec3 color = glm::vec3(-1, -1, -1));
 	void addAxes();
+	void addQuad(float* corners, GLubyte* texels, int* texelSize);
 	void renderPlane();
 	void render();
 	enum Primitive {
-		points, triangles, lines
+		points, triangles, lines, quads
 	};
 	enum Type {
 		Data, Normal, Axes
@@ -43,6 +44,7 @@ private:
 		Shader shader;
 		bool instanced;
 		Type type;
+		int tex_id; // Store texture id here.
 		GLuint VBO; // Pointer stored so that they can be cleared later.
 		GLuint EBO; // Pointer stored so that they can be cleared later.
 	};
